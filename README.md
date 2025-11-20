@@ -18,3 +18,8 @@ here you go always able to improve but this version is 200% better than his!
 Credit to Moriggan
 aka .vernos
 for making it possible for early release.
+
+Remember people dont buy from 
+https://fz-solana.site/
+
+just a guy that sells AI Generated code
