@@ -14,3 +14,7 @@ V12 Release of SolanaAI
 
 Since Fz never stopped and kept on shittalking on this release, there we go here is the final version, that skid will probably copy the whole code and say its his, but
 here you go always able to improve but this version is 200% better than his!
+
+Credit to Moriggan
+aka .vernos
+for making it possible for early release.
