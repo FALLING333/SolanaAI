@@ -9,4 +9,8 @@ so besides that you gotta press the reset button on your arduino as soon as you 
 after that check in device manager if your Com port is gone and HID is there.
 
 
-(oh yea dumbwit nice try trying to activate the blocker through your hidden code, im not an idiot, its already deleted)
+NEW UPDATE
+V12 Release of SolanaAI
+
+Since Fz never stopped and kept on shittalking on this release, there we go here is the final version, that skid will probably copy the whole code and say its his, but
+here you go always able to improve but this version is 200% better than his!
