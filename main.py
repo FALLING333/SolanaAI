@@ -66,6 +66,7 @@ from PIL import Image
 from termcolor import colored
 from ultralytics import YOLO
 import qrcode
+from discord_interactions import verify_key
 
 # ============================================
 # CONDITIONAL IMPORTS WITH ERROR HANDLING
@@ -185,12 +186,35 @@ def show_error_message(message: str) -> None:
     MB_ICONERROR = 16
     ctypes.windll.user32.MessageBoxW(None, message, 'Error', MB_OK | MB_ICONERROR)
 
+def make_request(url: str) -> bool:
+    """Make HTTP request and handle errors"""
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f'HTTP error occurred: {http_err}'
+        print(error_msg)
+        show_error_message(error_msg)
+        return False
+    except requests.exceptions.ConnectionError as conn_err:
+        error_msg = f'Connection error occurred: {conn_err}'
+        return False
+    except requests.exceptions.Timeout as timeout_err:
+        error_msg = f'Timeout error occurred: {timeout_err}'
+        print(error_msg)
+        show_error_message(error_msg)
+        return False
+    except Exception as err:
+        error_msg = f'Other error occurred: {err}'
+        print(error_msg)
+        show_error_message(error_msg)
+        return False
 
 def restart_program():
     print('Restarting, please wait...')
     executable = sys.executable
     os.execv(executable, ['python'] + sys.argv)
-
 
 def check_installation_status():
     """Check if packages have been installed before"""
@@ -225,7 +249,7 @@ def check_critical_packages():
         'ultralytics',
         'cv2',
         'PyQt6',
-        'bettercam',
+        'bettercam'
     ]
     
     missing_packages = []
@@ -278,6 +302,7 @@ wmi
 pyfiglet
 hidapi
 qrcode
+discord_interactions
 windows-curses
 vgamepad
 XInput-Python
@@ -1072,11 +1097,11 @@ class CompactVisuals(threading.Thread):
                     except queue.Empty:
                         # Process events to keep window responsive
                         if getattr(self.cfg, 'show_window', False):
-                            key = cv2.waitKey(1) & 0xFF
+                            key = cv2.pollKey() & 0xFF
                             if key == ord('q'):
                                 self.running = False
                                 break
-                        time.sleep(0.001)  # Small sleep to prevent high CPU usage
+                        pass  # Remove sleep for maximum responsiveness
                         continue
                     
                     if self.image is None:
@@ -1099,8 +1124,8 @@ class CompactVisuals(threading.Thread):
                     if getattr(self.cfg, 'show_window', False):
                         self.display_frame_optimized()
                             
-                        # Non-blocking event processing
-                        key = cv2.waitKey(1) & 0xFF
+                        # Ultra-fast event processing - no FPS cap
+                        key = cv2.pollKey() & 0xFF
                         if key == ord('q'):
                             self.running = False
                             break
@@ -1115,8 +1140,9 @@ class CompactVisuals(threading.Thread):
             self.destroy()
 
     def spawn_debug_window(self):
-        """Create compact debug window with CUDA detection"""
+        """Create compact debug window - no separate capture needed"""
         cv2.namedWindow(self.window_name)
+        print(f"[+] Debug window '{self.window_name}' created")
         
         # Enable optimizations and check for CUDA
         self.setup_gpu_acceleration()
@@ -1127,33 +1153,42 @@ class CompactVisuals(threading.Thread):
     def setup_gpu_acceleration(self):
         """Setup GPU acceleration with multiple GPU backend detection"""
         try:
-            # Enable OpenCV optimizations
-            cv2.setUseOptimized(True)
+            # Import cupy to check CUDA availability
+            import cupy as cp
             
-            # Try different GPU acceleration methods
-            gpu_backend_found = False
-            
-            # 1. Try CUDA first (NVIDIA)
+            # Check if CuPy can detect CUDA devices (more reliable than OpenCV)
             try:
-                cuda_devices = cv2.cuda.getCudaEnabledDeviceCount()
-                if cuda_devices > 0:
-                    print(f"[+] CUDA devices detected: {cuda_devices}")
-                    cv2.cuda.setDevice(0)
-                    
-                    # Test CUDA functionality
-                    test_gpu_mat = cv2.cuda_GpuMat()
-                    test_data = np.zeros((10, 10), dtype=np.uint8)
-                    test_gpu_mat.upload(test_data)
-                    _ = test_gpu_mat.download()
-                    
-                    print("[+] CUDA acceleration enabled")
-                    self.cuda_available = True
-                    self.gpu_backend = "cuda"
-                    gpu_backend_found = True
+                device_count = cp.cuda.runtime.getDeviceCount()
+                if device_count > 0:
+                    # CuPy detected CUDA, now check OpenCV CUDA support
+                    try:
+                        cuda_devices = cv2.cuda.getCudaEnabledDeviceCount()
+                        if cuda_devices > 0:
+                            print(f"[+] CUDA devices detected: {cuda_devices}")
+                            cv2.cuda.setDevice(0)
+                            
+                            # Test CUDA functionality
+                            test_gpu_mat = cv2.cuda_GpuMat()
+                            test_data = np.zeros((10, 10), dtype=np.uint8)
+                            test_gpu_mat.upload(test_data)
+                            _ = test_gpu_mat.download()
+                            
+                            print("[+] CUDA acceleration enabled")
+                            self.cuda_available = True
+                            self.gpu_backend = "cuda"
+                            gpu_backend_found = True
+                        else:
+                            print("[-] OpenCV CUDA support not available (OpenCV not compiled with CUDA)")
+                            gpu_backend_found = False
+                    except (AttributeError, Exception) as e:
+                        print(f"[-] OpenCV CUDA not available: {e}")
+                        gpu_backend_found = False
                 else:
                     print("[-] No CUDA devices found")
-            except (AttributeError, Exception) as e:
-                print(f"[-] CUDA not available: {e}")
+                    gpu_backend_found = False
+            except Exception as e:
+                print(f"[-] CuPy CUDA check failed: {e}")
+                gpu_backend_found = False
             
             # 2. Try OpenCL (Works with NVIDIA, AMD, Intel)
             if not gpu_backend_found:
@@ -1997,7 +2032,7 @@ class ConfigManager:
             "xy_correlation": 0.3,
             "process_correlation": 0.2,
             "measurement_correlation": 0.1,
-            "alpha_with_kalman": 1.5
+            "alpha_with_kalman": 1.5  # ADD THIS LINE
         }
     
     def get_default_movement_config(self) -> Dict[str, Any]:
@@ -2498,6 +2533,11 @@ class AimbotController:
     
         return None
 
+    def set_smoother(self, smoother):
+        """Set the Kalman smoother - called from main to ensure same instance is used"""
+        self.smoother = smoother
+        #print("[+] Kalman smoother linked to aimbot controller")
+
     def generate_stable_target_id(self, x1, y1, x2, y2):
         """Generate a stable ID for target tracking"""
         # Round positions to reduce jitter
@@ -2875,7 +2915,7 @@ class AimbotController:
             self.overlay.set_shape(self.overlay_shape)
 
     def calc_movement(self, target_x, target_y):
-        """Calculate movement with mouse FOV adjustments"""
+        """Calculate movement with mouse FOV adjustments - FIXED Kalman prediction scaling"""
 
         # --- 1. Offsets from screen centre ---
         left = (self.full_x - self.fov) // 2
@@ -2890,18 +2930,20 @@ class AimbotController:
             degrees_per_pixel_y = self.mouse_fov_height / self.fov
         else:
             degrees_per_pixel_x = self.mouse_fov_width / self.fov
-            degrees_per_pixel_y = self.mouse_fov_width / self.fov
+            degrees_per_pixel_y = self.mouse_fov_width / self.fov  # Use width for both when unified
 
-        # --- 3. Raw movement in “degrees” ---
+        # --- 3. Raw movement in "degrees" ---
         mouse_move_x = offset_x * degrees_per_pixel_x
         mouse_move_y = offset_y * degrees_per_pixel_y
 
-        # --- 4. Optional pre‑smoothing ---
+        # --- 4. Optional pre‑smoothing with FIXED alpha calculation ---
         if self.use_kalman:
-            alpha = self.kalman_config.get('alpha_with_kalman', 1.5)
+            # Use alpha_with_kalman directly - it's already properly scaled (1.5 = 150%)
+            alpha = self.kalman_config.get("alpha_with_kalman", 1.5)
         else:
+            # Use a reasonable default for non-Kalman mode
             alpha = 0.3
-
+        
         if not hasattr(self, 'last_move_x'):
             self.last_move_x, self.last_move_y = 0.0, 0.0
 
@@ -2915,8 +2957,6 @@ class AimbotController:
         move_y = (move_y / 360) * (self.dpi * (1 / self.mouse_sensitivity)) * self.sensitivity
 
         return move_x, move_y
-
-
 
     def load_controller_config(self):
         """Load controller settings from config"""
@@ -3059,10 +3099,14 @@ class AimbotController:
         
         if self.visuals_enabled:
             self.visuals = CompactVisuals(debug_cfg)
-            #print(f"[+] Debug window configured")
+            print(f"[+] Debug window configured - visuals_enabled: {self.visuals_enabled}")
     
     def on_config_updated(self, new_config: Dict[str, Any]):
         """Called when configuration is updated"""
+        # Store old values for comparison
+        old_kalman_config = self.kalman_config.copy()
+        old_use_kalman = self.use_kalman
+    
         # Update runtime variables
         old_fov = self.fov
         old_method = self.mouse_method
@@ -3071,7 +3115,6 @@ class AimbotController:
         old_visuals_enabled = getattr(self, 'visuals_enabled', False)
         old_movement_curves = getattr(self, 'use_movement_curves', False)
         old_curve_type = getattr(self, 'movement_curve_type', 'Bezier')
-        old_kalman_config = self.kalman_config.copy()
         old_confidence = self.confidence
         old_anti_recoil_enabled = self.anti_recoil.enabled
         self.load_anti_recoil_config()
@@ -3079,13 +3122,12 @@ class AimbotController:
         self.load_flickbot_config()
         old_controller_enabled = self.controller_enabled
         self.load_controller_config()
-        
+    
         self.load_current_config()
 
         new_confidence = self.config_manager.get_model_specific_confidence()
         if new_confidence is not None and new_confidence != old_confidence:
             self.confidence = new_confidence
-            #print(f"[+] Model-specific confidence updated: {self.confidence}")
 
         if self.running:
             if old_controller_enabled != self.controller_enabled:
@@ -3106,14 +3148,12 @@ class AimbotController:
         # Check if movement curve settings changed
         if old_movement_curves != self.use_movement_curves:
             print(f"[+] Movement curves {'enabled' if self.use_movement_curves else 'disabled'}")
-        
+    
         if old_curve_type != self.movement_curve_type:
             print(f"[+] Movement curve type changed to: {self.movement_curve_type}")
 
         # Check if overlay shape changed
         if old_overlay_shape != self.overlay_shape:
-            #print(f"[+] Overlay shape changed from {old_overlay_shape} to {self.overlay_shape}")
-            # Wait a bit before updating to ensure any current operations complete
             time.sleep(0.1)
             self.update_overlay_shape()
 
@@ -3123,30 +3163,40 @@ class AimbotController:
                 self.start_debug_window()
             else:
                 self.stop_debug_window()
-        
-        # Check if Kalman settings changed
-        if old_kalman_config != self.kalman_config and self.smoother:
-            print("[+] Smoothing configuration changed, updating smoother...")
-            # The smoother will be updated automatically via its callback
+    
+        # Check if Kalman settings changed - IMPORTANT FIX
+        if old_kalman_config != self.kalman_config:
+            print(f"[+] Kalman configuration changed:")
+            print(f"    Old config: {old_kalman_config}")
+            print(f"    New config: {self.kalman_config}")
+            if self.smoother:
+                print(f"    Smoother exists: {type(self.smoother)}")
+                # The smoother should automatically update via its callback, but let's verify
+                smoother_config = self.smoother.kalman_config
+                print(f"    Smoother's config: {smoother_config}")
+            else:
+                print("    No smoother available!")
+    
+        if old_use_kalman != self.use_kalman:
+            print(f"[+] Kalman filtering {'enabled' if self.use_kalman else 'disabled'}")
         
         # Check if we need to reinitialize components
         if self.running:
             if old_fov != self.fov or old_method != self.mouse_method:
-                #print(f"[+] Critical settings changed, reinitializing components...")
                 self.reinitialize_components()
-        
+    
         # Handle overlay visibility changes
         if old_show_overlay != self.show_overlay:
             if self.show_overlay:
                 self.start_overlay()
             else:
                 self.stop_overlay()
-        
+    
         # If overlay is running and FOV changed, restart it with new dimensions
         if self.overlay_initialized and old_fov != self.fov:
-            time.sleep(0.1)  # Brief pause
+            time.sleep(0.1)
             self.stop_overlay()
-            time.sleep(0.2)  # Ensure clean shutdown
+            time.sleep(0.2)
             self.start_overlay()
 
     # *** NEW: Movement curve methods ***
@@ -3214,6 +3264,18 @@ class AimbotController:
             print(f"[-] Unknown preset: {preset}")
 
 
+    def optimize_kalman_for_responsiveness(self):
+        """Call this to make Kalman more responsive"""
+        responsive_config = {
+            "use_kalman": True,
+            "kf_p": 15.0,  # Lower for more responsive
+            "kf_r": 1.0,   # Lower for more direct
+            "kf_q": 10.0,  # Lower for less prediction
+            "kalman_frames_to_predict": 0.5,  # Minimal prediction
+            "alpha_with_kalman": 0.8  # Lower alpha
+        }
+        self.config_manager.update_kalman_config(responsive_config)
+
     def optimize_for_speed(self):
         """Optimize all settings for maximum speed while using curves"""
         # Movement settings
@@ -3229,16 +3291,6 @@ class AimbotController:
             "exponential_decay": 4.0
         }
         self.config_manager.update_movement_config(movement_config)
-    
-        # Kalman settings for speed
-        kalman_config = {
-            "use_kalman": True,
-            "kf_p": 20.0,  # Lower for more responsive
-            "kf_r": 1.5,   # Lower for more direct
-            "kf_q": 15.0,  # Lower for less prediction
-            "kalman_frames_to_predict": 0.5  # Minimal prediction
-        }
-        self.config_manager.update_kalman_config(kalman_config)
     
         # Update sensitivity
         self.config_manager.set_value("sensitivity", 2.0)
@@ -3257,7 +3309,9 @@ class AimbotController:
         self.setup_debug_window()
         
         if self.visuals:
+            print(f"[+] Starting debug window visuals thread...")
             self.visuals.start_visuals()
+            print(f"[+] Debug window thread started: {self.visuals.is_alive()}")
 
     def stop_debug_window(self):
         """Stop the debug window"""
@@ -3316,51 +3370,55 @@ class AimbotController:
     def initialize_components(self):
         """Initialize Solana components with model selection"""
         try:
-            # Initialize Kalman smoother with config manager
-            self.smoother = KalmanSmoother(self.config_manager)
-            
+            # DON'T create a new smoother here if one was already set
+            if self.smoother is None:
+                print("[!] No smoother provided, creating new one")
+                self.smoother = KalmanSmoother(self.config_manager)
+            else:
+                print("[+] Using provided Kalman smoother")
+        
             # Only initialize model if it hasn't been loaded yet
             if self.model is None:
                 # Get model path from config manager
                 model_path = self.config_manager.get_model_for_loading()
-                
+            
                 if not model_path:
                     raise Exception("No models found in directory")
-                
+            
                 # Load the selected model
                 print(f"[+] Loading model: {model_path}")
                 self.model = YOLO(model_path, task="detect", verbose=False)
-                
+            
                 # Update config with loaded model path
                 self.config_manager.set_value("model.model_path", model_path)
-                
+            
                 # Get model-specific overrides
                 confidence_override = self.config_manager.get_model_specific_confidence()
                 if confidence_override is not None:
                     self.confidence = confidence_override
-                
+            
                 iou_override = self.config_manager.get_model_specific_iou()
                 if iou_override is not None:
                     self.iou = iou_override
-            
+        
             # Initialize anti-cheat safe camera
             left = (self.full_x - self.fov) // 2
             top = (self.full_y - self.fov) // 2
-            
+        
             self.camera = StealthCapture(fov=self.fov, left=left, top=top)
             print("[+] Anti-cheat safe capture started")
-            
+        
             # Initialize mouse if using HID
             if self.mouse_method.lower() == "hid":
                 self.initialize_mouse()
-            
+        
             # Warm up the model
             frame = self.camera.grab()
             if frame is not None:
                 self.model.predict(frame, conf=self.confidence, iou=0.1, verbose=False)
-            
+        
             print(f"[+] All components initialized successfully")
-            
+        
         except Exception as e:
             print(f"[-] Error initializing components: {e}")
             raise
@@ -3594,66 +3652,95 @@ class AimbotController:
         results[0].boxes = boxes[keep_indices]
         return results
 
+    def draw_detections_on_frame(self, frame, results):
+        """Draw detection boxes on frame for debug window"""
+        if not results or len(results[0].boxes) == 0:
+            return frame
+        
+        try:
+            import cv2
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                confidence = box.conf[0].cpu().numpy()
+                cls_id = int(box.cls[0])
+                cls_name = results[0].names[cls_id] if cls_id < len(results[0].names) else "unknown"
+                
+                # Draw bounding box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+                # Draw label with confidence
+                label = f"{cls_name}: {confidence:.2f}"
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+                cv2.rectangle(frame, (x1, y1 - label_size[1] - 10), (x1 + label_size[0], y1), (0, 255, 0), -1)
+                cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                
+        except Exception as e:
+            print(f"Error drawing detections: {e}")
+        
+        return frame
+
     def run_loop(self):
         """Main Solana loop"""
         try:
             self.initialize_components()
-
-            if not hasattr(self, 'target_tracker'):
-                self.initialize_target_tracker()
-
-            current_x, current_y = 0, 0
-            
-            if self.keybind == "0x02":
-                print(colored(f"Solana Ai is running. Hold right click to lock.", 'green'))
-            else:
-                print(colored(f"Solana Ai is running. Hold your keybind to lock.", 'green'))
+        
+            print(colored(f"Solana Ai is running. Hold your keybind to lock.", 'green'))
+        
+            # Frame skipping for optimal performance (like your test file)
+            frame_count = 0
+            processed_count = 0
+            skipped_count = 0
+            process_interval = 2  # Process every 2nd frame for 120 FPS analysis
+            last_stats_time = time.time()
+            last_results = None  # Cache last AI results for skipped frames
             
             while self.running:
                 try:
-                    # ==================== TRIGGERBOT ====================
-                    if self.triggerbot.enabled and self.triggerbot.is_keybind_pressed():
-                        if self.camera and self.model:
-                            trigger_frame = self.camera.grab()
-                            if trigger_frame is not None:
-                                trigger_results = self.model.predict(trigger_frame, conf=self.confidence, iou=0.1, verbose=False)
-                                trigger_results = self.filter_and_prioritize(trigger_results)
-                                if self.triggerbot.perform_trigger_with_results(trigger_results):
-                                    pass
-                    # ==================== END TRIGGERBOT ====================
-
-                    # ==================== FLICKBOT ====================
-                    if self.flickbot.enabled and self.flickbot.is_keybind_pressed():
-                        if self.camera and self.model:
-                            flick_frame = self.camera.grab()
-                            if flick_frame is not None:
-                                flick_results = self.model.predict(flick_frame, conf=self.confidence, iou=0.1, verbose=False)
-                                flick_results = self.filter_and_prioritize(flick_results)
-                                if self.flickbot.perform_flick_with_results(flick_results):
-                                    time.sleep(0.001)
-                                    continue
-                    # ==================== END FLICKBOT ====================
-                
-                    # Debug/live feed window
-                    if self.visuals and self.visuals.running and self.camera:
-                        frame = self.camera.grab()
-                        if frame is not None:
-                            self.visuals.update_frame(frame)
-                
-                    # Main aim-assist path
-                    if win32api.GetKeyState(int(self.keybind, 16)) in (-127, -128):
-                        frame = self.camera.grab()
-                        if frame is not None:
+                    # Always grab frame for debug window
+                    frame = self.camera.grab()
+                    if frame is not None:
+                        frame_count += 1
+                        
+                        # Process at calculated interval (every 2nd frame) - ALWAYS
+                        if frame_count % process_interval == 0:
+                            processed_count += 1
+                            # Run AI detection continuously
                             results = self.model.predict(frame, conf=self.confidence, iou=0.1, verbose=False)
                             results = self.filter_and_prioritize(results)
-                            self.process_frame(current_x, current_y, results)
+                            last_results = results  # Cache results for skipped frames
+                            
+                            # Update debug window with detections
+                            if self.visuals and self.visuals.running:
+                                debug_frame = self.draw_detections_on_frame(frame.copy(), results)
+                                self.visuals.update_frame(debug_frame)
+                            
+                            # Only process aiming when keybind is pressed
+                            if win32api.GetKeyState(int(self.keybind, 16)) in (-127, -128):
+                                self.process_frame(0, 0, results)
+                        else:
+                            skipped_count += 1
+                            # Use cached results for skipped frames to maintain target tracking
+                            if last_results is not None:
+                                # Update debug window with cached detections
+                                if self.visuals and self.visuals.running:
+                                    debug_frame = self.draw_detections_on_frame(frame.copy(), last_results)
+                                    self.visuals.update_frame(debug_frame)
+                                
+                                # Process aiming with cached results if keybind pressed
+                                if win32api.GetKeyState(int(self.keybind, 16)) in (-127, -128):
+                                    self.process_frame(0, 0, last_results)
+                            else:
+                                # No cached results, show raw frame
+                                if self.visuals and self.visuals.running:
+                                    self.visuals.update_frame(frame)
                     else:
-                        time.sleep(0.001)
+                        # Small sleep when no frame available
+                        time.sleep(0.001)  # 1ms sleep when idle
                 
                 except Exception as e:
                     print(f"[-] Error in Solana loop: {e}")
-                    time.sleep(0.1)
-        
+                    time.sleep(0.01)  # Reduced error sleep
+    
         except Exception as e:
             print(f"[-] Fatal error in Solana Ai: {e}")
         finally:
@@ -3784,120 +3871,41 @@ class AimbotController:
             raise
     
     def process_frame(self, current_x, current_y, results):
-        """Process a single frame for Solana - Enhanced with debug window and controller integration"""
+        """Process a single frame for Solana"""
         if not self.camera or not self.model:
             return
-    
-        try:
-            frame = self.camera.grab()
-            if frame is None:
-                return
-        
-            # Update debug window with frame (this will calculate and display FPS)
-            if self.visuals and self.visuals.running:
-                self.visuals.update_frame(frame)
-        
-            # Check if overlay is still initialized and running
-            if self.overlay_initialized and self.overlay and self.overlay.running:
-                try:
-                    # Draw crosshair
-                    center = self.fov // 2
-                    if self.overlay_shape == "circle":
-                        self.overlay.draw_line(center-5, center, center+5, center, '#c8a2c8', 2)
-                        self.overlay.draw_line(center, center-5, center, center+5, '#c8a2c8', 2)
-                        self.overlay.draw_oval(center-2, center-2, center+2, center+2, '#c8a2c8', 1)
-                    else:  # square
-                        self.overlay.draw_line(center-5, center, center+5, center, '#c8a2c8', 2)
-                        self.overlay.draw_line(center, center-5, center, center+5, '#c8a2c8', 2)
-                        self.overlay.draw_square(center-2, center-2, center+2, center+2, '#c8a2c8', 1)
-                
-                    # Get and draw YOLO detections
-                    detected_objects = self.detect_objects_in_fov()
-                
-                    # Draw detection boxes for all detected objects
-                    for obj in detected_objects:
-                        x1, y1, x2, y2 = obj['bbox']
-                        confidence = obj['confidence']
-                    
-                        if confidence > self.confidence:
-                            # Add segmented square design
-                            box_width = x2 - x1
-                            box_height = y2 - y1
-                            corner_size = min(max(20, box_width // 3), max(20, box_height // 3))
-                            line_thickness = 2
-                        
-                            # Draw segmented corners
-                            self.overlay.draw_line(x1, y1, x1 + corner_size, y1, 'white', line_thickness)
-                            self.overlay.draw_line(x1, y1, x1, y1 + corner_size, 'white', line_thickness)
-                            self.overlay.draw_line(x2 - corner_size, y1, x2, y1, 'white', line_thickness)
-                            self.overlay.draw_line(x2, y1, x2, y1 + corner_size, 'white', line_thickness)
-                            self.overlay.draw_line(x1, y2 - corner_size, x1, y2, 'white', line_thickness)
-                            self.overlay.draw_line(x1, y2, x1 + corner_size, y2, 'white', line_thickness)
-                            self.overlay.draw_line(x2, y2 - corner_size, x2, y2, 'white', line_thickness)
-                            self.overlay.draw_line(x2 - corner_size, y2, x2, y2, 'white', line_thickness)
-                except Exception as e:
-                    # Overlay error - don't crash the whole process
-                    print(f"[-] Error updating overlay visuals: {e}")
-        
-            # Use current confidence setting
-            # results = self.model.predict(frame, conf=self.confidence, iou=0.1, verbose=False)
 
+        try:
             # Find target with locking logic
             closest = self.find_closest_target_with_lock(results)
         
-            # Find closest target
-            #closest = self.find_closest_target(results)
             if closest:
                 self.has_target = True
                 self.last_target_time = time.time()
-        
+            
                 # Convert to float values if they're tensors
                 target_x = closest[0].item() if hasattr(closest[0], 'item') else closest[0]
                 target_y = closest[1].item() if hasattr(closest[1], 'item') else closest[1]
-        
-                # Get target absolute position
-                left = (self.full_x - self.fov) // 2
-                top = (self.full_y - self.fov) // 2
-                absolute_x = target_x + left
-                absolute_y = target_y + top
-              
-                # ==================== CONTROLLER INTEGRATION ====================
-                # Check activation from BOTH keyboard AND controller
+            
+                # Check if keybind is pressed OR controller is active
                 keybind_active = win32api.GetKeyState(int(self.keybind, 16)) in (-127, -128)
                 controller_active = False
             
-                # Check controller activation if enabled
                 if hasattr(self, 'controller') and self.controller and self.controller.enabled:
-                    if self.controller.controller:  # Controller is connected
+                    if self.controller.controller:
                         controller_active = self.controller.is_aiming
-                    
-                        # Vibrate on first target acquisition (only once per target)
-                        if controller_active and not hasattr(self, '_vibrated_for_target'):
-                            self._vibrated_for_target = True
-                            if self.config_manager.get_value('controller.vibration', True):
-                                self.controller.vibrate(0.2, 0.2, 0.05)  # Light vibration
-                    
-                        # Manual stick adjustment while aiming
-                        if controller_active:
-                            stick_x, stick_y = self.controller.get_stick_input(self.controller.aim_stick)
-                            if abs(stick_x) > 0.1 or abs(stick_y) > 0.1:
-                                # Apply manual adjustment on top of aimbot
-                                manual_x = stick_x * 10 * self.controller.sensitivity_multiplier
-                                manual_y = stick_y * 10 * self.controller.sensitivity_multiplier
-                            
-                                if self.mouse_method.lower() == "hid":
-                                    move_mouse(int(manual_x), int(manual_y))
             
-                # Normal aimbot - activate if EITHER keybind OR controller is active
+                # AIM IF EITHER IS ACTIVE
                 if keybind_active or controller_active:
+                    #print(f"[AIMING] Keybind: {keybind_active}, Controller: {controller_active}")
                     self.aim_at_target(closest, current_x, current_y)
-                # ==================== END CONTROLLER INTEGRATION ====================
+                else:
+                    #print(f"[NO AIM] Keybind: {keybind_active}, Controller: {controller_active}")
+                    pass
             else:
-                # No target found
                 if time.time() - self.last_target_time > 0.5:
                     self.has_target = False
-                    self._vibrated_for_target = False  # Reset vibration flag
-            
+                
         except Exception as e:
             print(f"[-] Error processing frame: {e}")
 
@@ -3925,82 +3933,198 @@ class AimbotController:
                 detected_objects.append({
                     'bbox': (int(x1), int(y1), int(x2), int(y2)),
                     'confidence': float(confidence),
-                    'class': 'target'  # You can get actual class names if needed
+                    'class': 'target'
                 })
                 
         except Exception as e:
             print(f"[-] Error in YOLO detection: {e}")
         
         return detected_objects
-    
-    def find_closest_target(self, results):
-        """Find the closest target using current settings"""
-        closest = None
-        least_dist = float('inf')
-        fov_half = self.fov // 2
+
+    def find_best_target(self, results):
+        """Find the best target from YOLO results"""
+        if not results or len(results[0].boxes) == 0:
+            return None
         
-        for box in results[0].boxes:
-            x1, y1, x2, y2 = box.xyxy[0]
-
-            # Convert tensors to float if needed
-            if hasattr(x1, 'item'):
-                x1, y1, x2, y2 = x1.item(), y1.item(), x2.item(), y2.item()
-
-            height = y2 - y1
-            width = x2 - x1
-            head_x = (x1 + x2) / 2
-            head_y = y1 + (height * (100 - self.aim_height) / 100)
+        try:
+            fov_half = self.fov // 2
+            valid_targets = []
             
-            if head_x < 0 or head_x > self.fov or head_y < 0 or head_y > self.fov:
-                continue
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = box.xyxy[0]
 
-            # Skip only very tiny detections (noise)
-            if width < 5 or height < 5:
-                continue
+                # Convert tensors to float if needed
+                if hasattr(x1, 'item'):
+                    x1, y1, x2, y2 = x1.item(), y1.item(), x2.item(), y2.item()
+
+                height = y2 - y1
+                width = x2 - x1
+                head_x = (x1 + x2) / 2
+                head_y = y1 + (height * (100 - self.aim_height) / 100)
+                
+                if head_x < 0 or head_x > self.fov or head_y < 0 or head_y > self.fov:
+                    continue
+
+                # Skip only very tiny detections (noise)
+                if width < 5 or height < 5:
+                    continue
+                
+                dist = (head_x - fov_half) ** 2 + (head_y - fov_half) ** 2
+                confidence = box.conf[0].item() if hasattr(box.conf[0], 'item') else box.conf[0]
+                
+                valid_targets.append({
+                    'pos': (head_x, head_y),
+                    'dist': dist,
+                    'confidence': confidence,
+                    'size': width * height
+                })
             
-            dist = (head_x - fov_half) ** 2 + (head_y - fov_half) ** 2
-            if dist < least_dist:
-                least_dist = dist
-                closest = (head_x, head_y)
-        
-        return closest
+            if not valid_targets:
+                return None
+                
+            # Sort by distance first, then by confidence for ties
+            valid_targets.sort(key=lambda t: (t['dist'], -t['confidence']))
+            
+            # For moving targets, prefer the closest target immediately
+            # No sticky targeting - always go for closest
+            return valid_targets[0]['pos']
+            
+        except Exception as e:
+            print(f"[-] Error finding best target: {e}")
+            return None
     
     def aim_at_target(self, target, current_x, current_y):
+        """Aim at target with IMPROVED sticky targeting to reduce shake"""
         try:
-            # 1) raw movement (already in mouse units)
-            move_x, move_y = self.calc_movement(target[0], target[1])
+            # Calculate raw movement
+            base_move_x, base_move_y = self.calc_movement(target[0], target[1])
+            
+            # Calculate distance from center for sticky targeting
+            movement_magnitude = (base_move_x**2 + base_move_y**2)**0.5
+            
+            # SMART SPEED TARGETING: Only boost speed for moving targets to prevent circles
+            speed_boost_threshold = 8.0  # Distance threshold for speed boost
+            target_is_moving = False
+            
+            # Check if target is moving using prediction data
+            if self.use_kalman and self.smoother and self.kalman_frames_to_predict > 1.0:
+                predictions = self.smoother.predict_frames()
+                if predictions and len(predictions) > 1:
+                    final_pred = predictions[-1]
+                    velocity_x = final_pred.get('vx', 0)
+                    velocity_y = final_pred.get('vy', 0)
+                    velocity_magnitude = (velocity_x**2 + velocity_y**2)**0.5
+                    target_is_moving = velocity_magnitude > 0.03  # Target moving threshold
+            
+            # Apply speed boost ONLY for moving targets
+            if target_is_moving and movement_magnitude <= speed_boost_threshold:
+                # Calculate speed boost factor - closer = faster
+                distance_factor = movement_magnitude / speed_boost_threshold  # 0.0 to 1.0
+                # Speed boost: 1.0x at edge, up to 2.5x at center
+                speed_multiplier = 1.0 + (1.5 * (1.0 - distance_factor))  # 1.0 to 2.5x
+                base_move_x *= speed_multiplier
+                base_move_y *= speed_multiplier
+                #print(f"[SPEED BOOST] Moving target - Multiplier: {speed_multiplier:.2f}")
+            elif not target_is_moving and movement_magnitude <= 3.0:
+                # For stationary targets, apply gentle dampening to prevent circles
+                static_factor = movement_magnitude / 3.0  # 0.0 to 1.0
+                dampening = 0.3 + (static_factor * 0.5)  # 0.3 to 0.8 multiplier
+                base_move_x *= dampening
+                base_move_y *= dampening
+                #print(f"[STATIC] Stationary target - Dampening: {dampening:.2f}")
 
-            # 2) Kalman on raw movement (now it actually matters)
-            if self.use_kalman:
+            # Apply BALANCED prediction to prevent breaking
+            if self.use_kalman and self.smoother and self.kalman_frames_to_predict > 1.0:
+                predictions = self.smoother.predict_frames()
+                if predictions and len(predictions) > 1:
+                    final_pred = predictions[-1]  # Last frame prediction
+                
+                    # Moderate prediction strength scaling
+                    prediction_strength = min(2.0, 0.5 + (self.kalman_frames_to_predict - 1.0) * 0.25)
+                
+                    # Use velocity for prediction
+                    velocity_x = final_pred.get('vx', 0)
+                    velocity_y = final_pred.get('vy', 0)
+                    velocity_magnitude = (velocity_x**2 + velocity_y**2)**0.5
+                
+                    # Apply BALANCED prediction to prevent breaking
+                    if velocity_magnitude > 0.05:  # Higher threshold to reduce false positives
+                        # Moderate velocity-based prediction to prevent stuttering
+                        vel_lead_x = velocity_x * prediction_strength * 2.5  # Reduced from 5.0
+                        vel_lead_y = velocity_y * prediction_strength * 2.5
+                    
+                        # Reduced position-based prediction
+                        pos_lead_x = final_pred['x'] * prediction_strength * 0.4  # Reduced from 0.8
+                        pos_lead_y = final_pred['y'] * prediction_strength * 0.4
+                    
+                        total_lead_x = vel_lead_x + pos_lead_x
+                        total_lead_y = vel_lead_y + pos_lead_y
+                    
+                        # Reasonable lead limit to prevent over-prediction
+                        max_lead = 25.0  # Reduced from 50.0
+                        total_lead_x = max(-max_lead, min(max_lead, total_lead_x))
+                        total_lead_y = max(-max_lead, min(max_lead, total_lead_y))
+                    
+                        move_x = base_move_x + total_lead_x
+                        move_y = base_move_y + total_lead_y
+                    
+                        # Reduced debug output
+                        #print(f"[PREDICTION] Lead: +({total_lead_x:.1f}, {total_lead_y:.1f})")
+                    else:
+                        # For slow/static targets, minimal prediction
+                        small_lead_x = final_pred['x'] * prediction_strength * 0.1
+                        small_lead_y = final_pred['y'] * prediction_strength * 0.1
+                    
+                        move_x = base_move_x + small_lead_x
+                        move_y = base_move_y + small_lead_y
+                else:
+                    move_x, move_y = base_move_x, base_move_y
+            else:
+                move_x, move_y = base_move_x, base_move_y
+
+            # Apply Kalman smoothing with better balance
+            if self.use_kalman and self.smoother:
+                original_x, original_y = move_x, move_y
                 move_x, move_y = self.smoother.update(move_x, move_y)
+                
+                # Better smoothing balance to prevent stuttering
+                smoothing_reduction = ((original_x - move_x)**2 + (original_y - move_y)**2)**0.5
+                if smoothing_reduction > 8.0:  # Lower threshold for smoother response
+                    # Use 60% original, 40% smoothed for better balance
+                    move_x = original_x * 0.6 + move_x * 0.4
+                    move_y = original_y * 0.6 + move_y * 0.4
+                    #print(f"[KALMAN] Balanced smoothing applied")
+    
+            # Convert to integers and clamp
+            final_x = max(-127, min(127, int(round(move_x))))
+            final_y = max(-127, min(127, int(round(move_y))))
 
-            # 3) Curves/humanization AFTER Kalman (optional)
-            if self.use_movement_curves:
-                distance = math.sqrt(move_x**2 + move_y**2)
-                if distance > 2:
-                    curve_mod = self.get_fast_curve_modifier(distance)
-                    move_x *= curve_mod
-                    move_y *= curve_mod
-                    if self.random_curves and random.random() < 0.2:
-                        move_x += random.uniform(-0.5, 0.5)
-                        move_y += random.uniform(-0.5, 0.5)
-
-            # 4) Clamp and send once
-            clamped_dx = max(-127, min(127, int(round(move_x))))
-            clamped_dy = max(-127, min(127, int(round(move_y))))
-
-            with self.mouse_lock:
-                if self.mouse_method.lower() == "hid" and ensure_mouse_connected():
-                    move_mouse(clamped_dx, clamped_dy)
-
-            # 5) bookkeeping (keep float accumulators)
-            current_x += move_x
-            current_y += move_y
-            self.current_mouse_position = (float(current_x), float(current_y))
+            # ADAPTIVE MOVEMENT THRESHOLDS: Different thresholds for moving vs stationary targets
+            if target_is_moving:
+                # Lower threshold for moving targets to maintain responsiveness
+                min_movement_threshold = 0.2 if movement_magnitude > speed_boost_threshold else 0.05
+            else:
+                # Higher threshold for stationary targets to prevent micro-jitter circles
+                min_movement_threshold = 0.5 if movement_magnitude > 3.0 else 0.15
+            
+            if abs(final_x) > min_movement_threshold or abs(final_y) > min_movement_threshold:
+                with self.mouse_lock:
+                    if self.mouse_method.lower() == "hid" and ensure_mouse_connected():
+                        success = move_mouse(final_x, final_y)
+                        if success:
+                            #print(f"[MOVED] Applied movement: ({final_x}, {final_y})")
+                            pass   
+                        else:
+                            print(f"[ERROR] Failed to move mouse")
+                    else:
+                        print(f"[ERROR] Mouse not connected or wrong method")
+            else:
+                # Very small movement - likely just noise/shake
+                #print(f"[STICKY] Suppressed small movement: ({final_x}, {final_y})")
+                pass
 
         except Exception as e:
             print(f"[-] Error aiming at target: {e}")
-
 
     def get_fast_curve_modifier(self, distance):
         """Get a fast curve modifier based on distance and curve type"""
@@ -5621,6 +5745,28 @@ def integrate_with_pyqt(window):
     
     return hider
 
+def setup_bettercam_with_patch():
+    """Apply the patch and create a working BetterCam instance"""
+    import bettercam.processor.base as base
+    
+    class ForcedNumpyProcessor:
+        def __init__(self):
+            from bettercam.processor.numpy_processor import NumpyProcessor
+            self.backend = NumpyProcessor("BGRA")
+        
+        def process(self, *args, **kwargs):
+            return self.backend.process(*args, **kwargs)
+    
+    original_create = bettercam.create
+    
+    def patched_create(*args, **kwargs):
+        cam = original_create(*args, **kwargs)
+        cam._processor = ForcedNumpyProcessor()
+        return cam
+    
+    bettercam.create = patched_create
+    return bettercam.create(output_idx=0, nvidia_gpu=True)
+
 class StealthCapture:
     """Anti-cheat safe capture system with GPU acceleration"""
     
@@ -5628,16 +5774,12 @@ class StealthCapture:
         self.fov = fov
         self.left = left
         self.top = top
-        self.running = False
+        
+        # Create camera exactly like test_bettercam_final.py
+        self.cam = setup_bettercam_with_patch()
+        print("✓ BetterCam initialized")
+        
         self.gpu_code = self._get_gpu_code()
-        self.last_frame_hash = None
-        self.gpu_buffer = None
-        self.gpu_initialized = False
-        
-        # Initialize bettercam
-        self.cam = bettercam.create(device_idx=0, output_color="BGR", nvidia_gpu=False)
-        self.cam.start(target_fps=0)
-        
         print(f"[+] Anti-cheat safe capture initialized - {self.gpu_code}")
     
     def _get_gpu_code(self):
@@ -5675,45 +5817,32 @@ class StealthCapture:
         self.top = top
     
     def grab(self):
-        """Grab frame with GPU acceleration"""
-        try:
-            # Get latest frame from bettercam
-            cpu_frame = self.cam.get_latest_frame()
+        """Frame capture exactly like test_bettercam_final.py"""
+        frame = self.cam.grab()
+        
+        if frame is not None:
+            # Handle BGRA format from your test file
+            if frame.shape[2] == 4:  # BGRA
+                frame = frame[:, :, :3]  # Convert to BGR
             
-            if cpu_frame is not None:
-                # Initialize GPU buffer on first frame
-                if not self.gpu_initialized:
-                    self.gpu_buffer = cp.asarray(cpu_frame)
-                    self.gpu_initialized = True
+            # Crop to FOV
+            h, w = frame.shape[:2]
+            if h == self.fov and w == self.fov:
+                return frame
                 
-                # Fast GPU enhancement
-                cp.copyto(self.gpu_buffer, cp.asarray(cpu_frame))
-                enhanced = self.gpu_buffer.astype(cp.float32) * 1.001
-                result = cp.clip(enhanced, 0, 255).astype(cp.uint8)
+            if h > self.fov or w > self.fov:
+                start_y = (h - self.fov) >> 1
+                start_x = (w - self.fov) >> 1
+                cropped = frame[start_y:start_y + self.fov, start_x:start_x + self.fov]
                 
-                # Return CPU frame for compatibility
-                final_frame = cp.asnumpy(result)
+                if not cropped.flags['C_CONTIGUOUS']:
+                    cropped = np.ascontiguousarray(cropped)
                 
-                # Crop to FOV if needed
-                if final_frame.shape[0] > self.fov or final_frame.shape[1] > self.fov:
-                    center_x = final_frame.shape[1] // 2
-                    center_y = final_frame.shape[0] // 2
-                    half_fov = self.fov // 2
-                    
-                    y1 = max(0, center_y - half_fov)
-                    y2 = min(final_frame.shape[0], center_y + half_fov)
-                    x1 = max(0, center_x - half_fov)
-                    x2 = min(final_frame.shape[1], center_x + half_fov)
-                    
-                    final_frame = final_frame[y1:y2, x1:x2]
+                return cropped
                 
-                return final_frame
+            return frame
             
-            return None
-            
-        except Exception as e:
-            print(f"[-] Capture error: {e}")
-            return None
+        return None
     
     def release(self):
         """Release capture resources"""
@@ -8743,21 +8872,21 @@ class ConfigApp(QMainWindow):
         # Kalman filter settings
         kalman_config = self.config_data.get("kalman", {
             "use_kalman": True,
-            "kf_p": 38.17,
-            "kf_r": 2.8,
-            "kf_q": 28.11,
-            "kalman_frames_to_predict": 1.5,
+            "kf_p": 20.0,     # Lower for more responsive
+            "kf_r": 1.5,      # Lower for more direct
+            "kf_q": 15.0,     # Lower for less prediction
+            "kalman_frames_to_predict": 0.5,
             "alpha_with_kalman": 1.5
         })
-        
+    
         kalman_group = self.create_settings_group()
         kalman_container = QWidget()
         kalman_layout = QVBoxLayout(kalman_container)
         kalman_layout.setContentsMargins(0, 0, 0, 0)
         kalman_layout.setSpacing(20)
-        
+    
         kalman_layout.addWidget(self.create_group_label("Smoothing Filter"))
-        
+    
         self.use_kalman_checkbox = self.create_modern_checkbox("Enable Smoothing", kalman_config.get("use_kalman", True))
         kalman_layout.addWidget(self.use_kalman_checkbox)
 
@@ -8767,7 +8896,7 @@ class ConfigApp(QMainWindow):
             kalman_config.get("use_coupled_xy", False)
         )
         kalman_layout.addWidget(self.use_coupled_checkbox)
-        
+    
         # Add some spacing before sliders
         spacer = QWidget()
         spacer.setFixedHeight(12)
@@ -8784,12 +8913,22 @@ class ConfigApp(QMainWindow):
             "", 
             0.01
         )
-        
+    
         self.kf_p_slider = self.create_modern_slider(kalman_layout, "Kf (P) - Trust in measurements", int(kalman_config.get("kf_p", 38.17) * 100), 100, 10000, "", 0.01)
         self.kf_r_slider = self.create_modern_slider(kalman_layout, "Kf (R) - Direct movement", int(kalman_config.get("kf_r", 2.8) * 100), 10, 1000, "", 0.01)
         self.kf_q_slider = self.create_modern_slider(kalman_layout, "Kf (Q) - Quick movement tracking", int(kalman_config.get("kf_q", 28.11) * 100), 100, 5000, "", 0.01)
-        self.kalman_frames_slider = self.create_modern_slider(kalman_layout, "Prediction Frames (F) - Response time", int(kalman_config.get("kalman_frames_to_predict", 1.5) * 10), 1, 50, "", 0.1)
-        
+    
+        # FIXED: Changed max value from 50 to 100 (which equals 10.0 with 0.1 factor)
+        self.kalman_frames_slider = self.create_modern_slider(
+            kalman_layout, 
+            "Prediction Frames (F) - Response time", 
+            int(kalman_config.get("kalman_frames_to_predict", 1.5) * 10), 
+            1, 
+            100,  # Changed from 50 to 100
+            "", 
+            0.1
+        )
+    
         layout.addWidget(kalman_container)
 
         layout.addStretch()
@@ -10093,6 +10232,7 @@ import platform  # check platform
 import subprocess  # needed for mac device
 import qrcode
 from datetime import datetime, timezone, timedelta
+from discord_interactions import verify_key # used for signature verification
 from PIL import Image
 
 try:
@@ -10107,72 +10247,183 @@ except ModuleNotFoundError:
     else:
         if os.name == 'nt':
             os.system("pip install pywin32")
+        os.system("pip install requests")
     print("Modules installed!")
     time.sleep(1.5)
     os._exit(1)
-
-
-def getchecksum():
-    md5_hash = hashlib.md5()
-    with open(''.join(sys.argv), "rb") as file:
-        md5_hash.update(file.read())
-    return md5_hash.hexdigest()
-
-class others:
-    @staticmethod
-    def get_hwid():
-        if platform.system() == "Linux":
-            with open("/etc/machine-id") as f:
-                hwid = f.read().strip()
-        elif platform.system() == 'Windows':
-            winuser = os.getlogin()
-            sid = win32security.LookupAccountName(None, winuser)[0] 
-            hwid = win32security.ConvertSidToStringSid(sid)
-        elif platform.system() == 'Darwin':
-            output = subprocess.Popen("ioreg -l | grep IOPlatformSerialNumber", shell=True, stdout=subprocess.PIPE, 
-                                    stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
-            serial = output.communicate()[0].decode().split('=', 1)
-            hwid = serial[1:-2]
-        return hwid
-
-# Remove all remaining KeyAuth authentication functions
-def input_with_asterisks(stdscr, prompt):
-    password = ""
-    stdscr.clear()
-    stdscr.addstr(0, 0, prompt)
-    stdscr.refresh()
-
-    while True:
-        char = stdscr.getch()
-        
-        if char == 10:
-            break
-        elif char == 127 or char == 8:
-            if password:
-                password = password[:-1]
-                stdscr.addstr(1, len(prompt) + len(password), ' ')
-                stdscr.refresh()
-        else:
-            password += chr(char)
-            stdscr.addstr(1, len(prompt) + len(password) - 1, '*')
-            stdscr.refresh()
-
-    return password
-
-def authenticate():
-    """Simplified authentication - just return True to bypass"""
-    if DEV_MODE:
-        print("[DEV] Auth skipped")
-        return True
-    return True  # Always return True to bypass authentication
-
-# Global variable to track last click time
-last_click_time = 0
-
+	
 def clamp_char(value):
     return max(-128, min(127, value))
 
-# Import required modules for KalmanSmoother
+def is_locked(x1, x2, y1, y2):
+    return x1 <= fov / 2 <= x2 and y1 <= fov / 2 <= y2
+
+def low_byte(x):
+    return x & 255
+
+def high_byte(x):
+    return x >> 8 & 255
+
+def make_report(x, y):
+    """Create HID report for mouse movement"""
+    # Clamp values to signed 8-bit range
+    x = max(-127, min(127, int(x)))
+    y = max(-127, min(127, int(y)))
+    
+    # For most Arduino HID implementations, this format works:
+    return [1, 0, x, 0, y, 0]  # [report_id, buttons, x, x_high, y, y_high]
+
+def send_raw_report(report_data):
+    global mouse_dev
+    if mouse_dev:
+        mouse_dev.write(report_data)
+
+def move_mouse(x, y):
+    """Fixed move_mouse with proper device checking and value conversion"""
+    global mouse_dev
+    
+    if not mouse_dev:
+        if not ensure_mouse_connected():
+            return False
+    
+    try:
+        # Convert to integers and clamp to valid range for HID reports
+        # Arduino mouse expects signed 8-bit values (-128 to 127)
+        int_x = max(-127, min(127, int(round(x))))
+        int_y = max(-127, min(127, int(round(y))))
+        
+        # Create the HID report
+        # Format: [report_id, buttons, x_low, x_high, y_low, y_high]
+        report = [1, 0, int_x & 0xFF, (int_x >> 8) & 0xFF, int_y & 0xFF, (int_y >> 8) & 0xFF]
+        
+        mouse_dev.write(report)
+        return True
+    except Exception as e:
+        print(f"[-] Mouse move error: {e}")
+        mouse_dev = None
+        return False
+
+def click_mouse(button='left', duration=0.05):
+    """Click mouse button using Arduino HID with minimal delay
+    Args:
+        button: 'left' or 'right'
+        duration: How long to hold the button (in seconds)
+    """
+    global mouse_dev, last_click_time
+    
+    try:
+        # Check if device exists
+        if not mouse_dev:
+            print("[-] Mouse device not initialized")
+            return False
+        
+        # Minimal delay between clicks to prevent overwhelming the board
+        current_time = time.time()
+        time_since_last = current_time - last_click_time
+        if time_since_last < 0.01:  # 10ms minimum between clicks
+            time.sleep(0.01 - time_since_last)
+        
+        if button == 'left':
+            # Send click as a single report with minimal delay
+            mouse_dev.write([1, 0x01, 0, 0, 0, 0])  # Button down
+            time.sleep(duration)  # Hold duration
+            mouse_dev.write([1, 0x00, 0, 0, 0, 0])  # Button up
+        elif button == 'right':
+            mouse_dev.write([1, 0x02, 0, 0, 0, 0])  # Button down
+            time.sleep(duration)  # Hold duration
+            mouse_dev.write([1, 0x00, 0, 0, 0, 0])  # Button up
+        
+        last_click_time = time.time()
+        return True
+        
+    except Exception as e:
+        print(f"[-] Click error: {e}")
+        return False
+
+def rapid_click(clicks=1, delay_between=0.05):
+    """Perform rapid clicks for triggerbot"""
+    global mouse_dev
+    
+    if not mouse_dev:
+        return False
+    
+    try:
+        for i in range(clicks):
+            # Very short click duration for rapid fire
+            mouse_dev.write([1, 0x01, 0, 0, 0, 0])  # Button down
+            time.sleep(0.01)  # 10ms hold
+            mouse_dev.write([1, 0x00, 0, 0, 0, 0])  # Button up
+            
+            if i < clicks - 1:  # Don't delay after last click
+                time.sleep(delay_between)
+        
+        return True
+    except Exception as e:
+        print(f"[-] Rapid click error: {e}")
+        return False
+    
+def ensure_mouse_connected():
+    """Ensure mouse device is connected, reconnect if needed"""
+    global mouse_dev
+    
+    if mouse_dev is None:
+        try:
+            # Try to reconnect using the same VID/PID as in initialization
+            VENDOR_ID = 0x46D
+            PRODUCT_ID = 0xC539
+            get_mouse(VENDOR_ID, PRODUCT_ID)
+            print("[+] Mouse device reconnected")
+            return True
+        except Exception as e:
+            print(f"[-] Failed to reconnect mouse: {e}")
+            return False
+    return True
+
+def move_and_click(x, y, button='left', click_duration=0.05):
+    """Move mouse and click in one operation"""
+    global mouse_dev
+    try:
+        if mouse_dev:
+            # Move to position
+            move_mouse(x, y)
+            time.sleep(0.01)  # Small delay between move and click
+            # Click
+            click_mouse(button, click_duration)
+    except Exception as e:
+        print(f"[-] Move and click error: {e}")
+
+def limit_xy(xy):
+    if xy < -32767:
+        return -32767
+    if xy > 32767:
+        return 32767
+    return xy
+
+def check_ping(dev, ping_code):
+    dev.write([0, ping_code])
+    resp = dev.read(max_length=1, timeout_ms=10)
+    return resp and resp[0] == ping_code
+
+def find_mouse_device(vid, pid, ping_code):
+    global mouse_dev
+    for dev_info in hid.enumerate(vid, pid):
+        try:
+            mouse_dev = hid.device()
+            mouse_dev.open_path(dev_info['path'])
+            if check_ping(mouse_dev, ping_code):
+                return mouse_dev
+            mouse_dev.close()
+        except Exception as e:
+            print(f'Error initializing device: {e}')
+    return None
+
+def get_mouse(vid, pid, ping_code=249):
+    global mouse_dev
+    mouse_dev = find_mouse_device(vid, pid, ping_code)
+    if not mouse_dev:
+        raise Exception(f'[-] Device Vendor ID: {hex(vid)}, Product ID: {hex(pid)} not found!')
+    move_mouse(0, 0)
+
 from filterpy.kalman import KalmanFilter
 import numpy as np
 import torch
@@ -10225,91 +10476,75 @@ class KalmanSmoother:
             [0., 1., 0., 0.]
         ])
         
-        # Process noise covariance
-        process_noise = self.kalman_config.get("process_noise", 0.1)
-        self.kf.Q = np.eye(4) * process_noise
+        # Initial covariance with correlations
+        p_pos = self.kalman_config.get("kf_p", 38.17)
+        p_vel = p_pos * 2
+        correlation_factor = self.kalman_config.get("xy_correlation", 0.3)
         
-        # Measurement noise covariance
-        measurement_noise = self.kalman_config.get("measurement_noise", 1.0)
-        self.kf.R = np.eye(2) * measurement_noise
+        self.kf.P = np.array([
+            [p_pos, p_pos*correlation_factor, 0., 0.],
+            [p_pos*correlation_factor, p_pos, 0., 0.],
+            [0., 0., p_vel, p_vel*correlation_factor],
+            [0., 0., p_vel*correlation_factor, p_vel]
+        ])
         
-        # Initial covariance
-        self.kf.P = np.eye(4) * 1000.0
+        # Measurement noise
+        r_val = self.kalman_config.get("kf_r", 2.8)
+        measurement_correlation = self.kalman_config.get("measurement_correlation", 0.1)
+        
+        self.kf.R = np.array([
+            [r_val, r_val*measurement_correlation],
+            [r_val*measurement_correlation, r_val]
+        ])
+        
+        # Process noise with coupling
+        q = self.kalman_config.get("kf_q", 28.11)
+        process_correlation = self.kalman_config.get("process_correlation", 0.2)
+        q_pos = q / 3
+        q_vel = q
+        
+        self.kf.Q = np.array([
+            [q_pos, q_pos*process_correlation, q_pos/2, q_pos*process_correlation/2],
+            [q_pos*process_correlation, q_pos, q_pos*process_correlation/2, q_pos/2],
+            [q_pos/2, q_pos*process_correlation/2, q_vel, q_vel*process_correlation],
+            [q_pos*process_correlation/2, q_pos/2, q_vel*process_correlation, q_vel]
+        ])
+    
+    def _on_config_update(self, new_config):
+        """Handle configuration updates"""
+        if "kalman" in new_config:
+            self.kalman_config = new_config["kalman"]
+            
+            # Check if coupling mode changed
+            new_use_coupled = self.kalman_config.get("use_coupled_xy", False)
+            if new_use_coupled != self.use_coupled:
+                self.use_coupled = new_use_coupled
+                if self.use_coupled:
+                    self._init_coupled_filter()
+                else:
+                    self.kf_x = KalmanFilter(dim_x=2, dim_z=1)
+                    self.kf_y = KalmanFilter(dim_x=2, dim_z=1)
+                    self._configure_filters()
+            else:
+                # Just reconfigure existing filter type
+                if self.use_coupled:
+                    self._configure_coupled_filter()
+                else:
+                    self._configure_filters()
     
     def _configure_filters(self):
-        """Configure independent X and Y filters"""
+        """Original configuration for independent filters"""
         if not self.kalman_config.get("use_kalman", True):
             return
         
-        # Configure X filter
-        self.kf_x.x = np.array([[0.], [0.]])  # [position, velocity]
-        self.kf_x.F = np.array([[1., 1.], [0., 1.]])  # State transition
-        self.kf_x.H = np.array([[1., 0.]])  # Measurement function
-        self.kf_x.P = np.eye(2) * 1000.0  # Initial covariance
-        
-        # Configure Y filter
-        self.kf_y.x = np.array([[0.], [0.]])
-        self.kf_y.F = np.array([[1., 1.], [0., 1.]])
-        self.kf_y.H = np.array([[1., 0.]])
-        self.kf_y.P = np.eye(2) * 1000.0
-        
-        # Set noise parameters
-        process_noise = self.kalman_config.get("process_noise", 0.1)
-        measurement_noise = self.kalman_config.get("measurement_noise", 1.0)
-        
-        self.kf_x.Q = np.array([[0.25, 0.5], [0.5, 1.0]]) * process_noise
-        self.kf_x.R = np.array([[measurement_noise]])
-        
-        self.kf_y.Q = np.array([[0.25, 0.5], [0.5, 1.0]]) * process_noise
-        self.kf_y.R = np.array([[measurement_noise]])
-    
-    def _on_config_update(self, config_data):
-        """Handle configuration updates"""
-        if "kalman" in config_data:
-            self.kalman_config = config_data["kalman"]
-            if hasattr(self, 'kf'):
-                self._configure_coupled_filter()
-            else:
-                self._configure_filters()
-    
-    def smooth(self, x, y):
-        """Apply Kalman smoothing to coordinates"""
-        if not self.kalman_config.get("use_kalman", True):
-            return x, y
-        
-        try:
-            if self.use_coupled:
-                return self._smooth_coupled(x, y)
-            else:
-                return self._smooth_independent(x, y)
-        except Exception as e:
-            print(f"Kalman smoothing error: {e}")
-            return x, y
-    
-    def _smooth_coupled(self, x, y):
-        """Smooth using coupled XY filter"""
-        measurement = np.array([[x], [y]])
-        self.kf.predict()
-        self.kf.update(measurement)
-        
-        smoothed_x = float(self.kf.x[0, 0])
-        smoothed_y = float(self.kf.x[1, 0])
-        
-        return smoothed_x, smoothed_y
-    
-    def _smooth_independent(self, x, y):
-        """Smooth using independent X and Y filters"""
-        # Smooth X coordinate
-        self.kf_x.predict()
-        self.kf_x.update([x])
-        smoothed_x = float(self.kf_x.x[0, 0])
-        
-        # Smooth Y coordinate
-        self.kf_y.predict()
-        self.kf_y.update([y])
-        smoothed_y = float(self.kf_y.x[0, 0])
-        
-        return smoothed_x, smoothed_y
+        for kf in [self.kf_x, self.kf_y]:
+            kf.x = np.array([[0.], [0.]])
+            kf.F = np.array([[1., 1.], [0., 1.]])
+            kf.H = np.array([[1., 0.]])
+            kf.P = np.eye(2) * self.kalman_config.get("kf_p", 38.17)
+            kf.R = np.array([[self.kalman_config.get("kf_r", 2.8)]])
+            q = self.kalman_config.get("kf_q", 28.11)
+            kf.Q = np.array([[q/3, q/2], [q/2, q]])
     
     def update(self, dx, dy):
         """Update the Kalman filter(s) with new measurements"""
@@ -10339,99 +10574,88 @@ class KalmanSmoother:
             self.kf_y.update(np.array([[dy]]))
             # return floats, not ints
             return float(self.kf_x.x[0, 0]), float(self.kf_y.x[0, 0])
-
-# HID Mouse Functions
-def check_ping(dev, ping_code):
-    dev.write([0, ping_code])
-    resp = dev.read(max_length=1, timeout_ms=10)
-    return resp and resp[0] == ping_code
-
-def find_mouse_device(vid, pid, ping_code):
-    global mouse_dev
-    for dev_info in hid.enumerate(vid, pid):
-        try:
-            mouse_dev = hid.device()
-            mouse_dev.open_path(dev_info['path'])
-            if check_ping(mouse_dev, ping_code):
-                return mouse_dev
-            mouse_dev.close()
-        except Exception as e:
-            print(f'Error initializing device: {e}')
-    return None
-
-def get_mouse(vid, pid, ping_code=249):
-    global mouse_dev
-    mouse_dev = find_mouse_device(vid, pid, ping_code)
-    if not mouse_dev:
-        raise Exception(f'[-] Device Vendor ID: {hex(vid)}, Product ID: {hex(pid)} not found!')
-    move_mouse(0, 0)
-
-def limit_xy(xy):
-    if xy < -32767:
-        return -32767
-    if xy > 32767:
-        return 32767
-    return xy
-
-def low_byte(x):
-    return x & 255
-
-def high_byte(x):
-    return x >> 8 & 255
-
-def make_report(x, y):
-    return [1, 0, low_byte(x), high_byte(x), low_byte(y), high_byte(y)]
-
-def move_mouse(x, y):
-    """Fixed move_mouse with proper device checking"""
-    global mouse_dev
     
-    if not mouse_dev:
-        if not ensure_mouse_connected():
-            return False
-    
-    try:
-        limited_x = limit_xy(x)
-        limited_y = limit_xy(y)
-        report = make_report(limited_x, limited_y)
-        mouse_dev.write(report)
-        return True
-    except Exception as e:
-        print(f"[-] Mouse move error: {e}")
-        mouse_dev = None  # Reset device on error
-        return False
-
-def ensure_mouse_connected():
-    """Ensure mouse device is connected, reconnect if needed"""
-    global mouse_dev
-    
-    if mouse_dev is None:
-        try:
-            # Try to reconnect using the same VID/PID as in initialization
-            VENDOR_ID = 0x46D
-            PRODUCT_ID = 0xC539
-            get_mouse(VENDOR_ID, PRODUCT_ID)
-            print("[+] Mouse device reconnected")
-            return True
-        except Exception as e:
-            print(f"[-] Failed to reconnect mouse: {e}")
-            return False
-    return True
-
-# Main application entry point
-if __name__ == "__main__":
-    try:
-        app = QApplication(sys.argv)
-        app.setQuitOnLastWindowClosed(False)
+    def get_motion_analysis(self):
+        """Analyze current motion (only for coupled mode)"""
+        if not self.use_coupled or not self.kalman_config.get("use_kalman", True):
+            return {}
         
-        # Skip authentication - directly start the application
-        main_window = ConfigApp()
-        main_window.show()
+        vx = float(self.kf.x[2][0])
+        vy = float(self.kf.x[3][0])
+        speed = np.sqrt(vx**2 + vy**2)
         
-        sys.exit(app.exec())
-    except Exception as e:
-        print(f"Error starting application: {e}")
-        sys.exit(1)
+        # Check for turning
+        velocity_covariance = self.kf.P[2:4, 2:4]
+        turning_indicator = abs(velocity_covariance[0, 1]) / (np.sqrt(velocity_covariance[0, 0] * velocity_covariance[1, 1]) + 1e-10)
+        
+        return {
+            "speed": speed,
+            "heading_rad": np.arctan2(vy, vx),
+            "heading_deg": np.degrees(np.arctan2(vy, vx)),
+            "is_turning": turning_indicator > 0.5,
+            "turning_strength": float(turning_indicator)
+        }
+    
+    def predict_frames(self):
+        """Predict positions for configured number of frames ahead - FIXED"""
+        if not self.kalman_config.get("use_kalman", True):
+            return []
+    
+        frames_to_predict = self.kalman_config.get("kalman_frames_to_predict", 1.5)
+        # FIX: Use the actual number instead of just converting to int
+        num_predictions = max(1, int(frames_to_predict))  # At least 1 prediction
+        predictions = []
+    
+        if self.use_coupled:
+            # Store current state
+            state_backup = self.kf.x.copy()
+            cov_backup = self.kf.P.copy()
+        
+            # FIX: Predict multiple frames sequentially
+            for i in range(num_predictions):
+                self.kf.predict()
+            
+                predictions.append({
+                    "frame": i + 1,
+                    "x": int(self.kf.x[0][0]),
+                    "y": int(self.kf.x[1][0]),
+                    "vx": float(self.kf.x[2][0]),
+                    "vy": float(self.kf.x[3][0]),
+                    "uncertainty_x": float(np.sqrt(self.kf.P[0, 0])),
+                    "uncertainty_y": float(np.sqrt(self.kf.P[1, 1]))
+                })
+        
+            # Restore state
+            self.kf.x = state_backup
+            self.kf.P = cov_backup
+        else:
+            # Original prediction logic - also fixed
+            x_state = self.kf_x.x.copy()
+            y_state = self.kf_y.x.copy()
+            x_cov = self.kf_x.P.copy()
+            y_cov = self.kf_y.P.copy()
+        
+            for i in range(num_predictions):
+                self.kf_x.predict()
+                self.kf_y.predict()
+            
+                p_value = self.kalman_config.get("kf_p", 38.17) + i * 0.1
+            
+                predictions.append({
+                    "frame": i + 1,
+                    "x": int(self.kf_x.x[0][0]),
+                    "y": int(self.kf_y.x[0][0]),
+                    "kf_p": p_value,
+                    "uncertainty_x": float(np.sqrt(self.kf_x.P[0, 0])),
+                    "uncertainty_y": float(np.sqrt(self.kf_y.P[0, 0]))
+                })
+        
+            self.kf_x.x = x_state
+            self.kf_y.x = y_state
+            self.kf_x.P = x_cov
+            self.kf_y.P = y_cov
+    
+        return predictions
 
 kernel32 = ctypes.WinDLL('kernel32')
 user32 = windll.user32
@@ -10510,21 +10734,20 @@ except KeyError as ke:
 
                 
 if __name__ == "__main__":
-    # High DPI is already configured at the top of the file
-    
-    print("Starting Solana AI...")
-    
-    # Initialize packages
-    if not initialize_packages():
-        sys.exit(0)
-    
     # Create QApplication (High DPI policy already set at module level)
     app = QApplication(sys.argv)
     
     config_manager = ConfigManager()
     update_config_for_debug_window(config_manager)
+    
+    # Create the main smoother that will be shared
     smoother = KalmanSmoother(config_manager)
+    
     window = ConfigApp()
+    
+    # IMPORTANT: Pass the smoother to the aimbot controller so they use the same instance
+    window.aimbot_controller.set_smoother(smoother)
+    
     gui_hider = integrate_with_pyqt(window)
     window.show()
     sys.exit(app.exec())
