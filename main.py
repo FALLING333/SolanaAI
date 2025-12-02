@@ -4,16 +4,13 @@
 import os
 import sys
 
-# Set environment variables BEFORE any Qt imports
 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 os.environ['QT_SCALE_FACTOR_ROUNDING_POLICY'] = 'RoundPreferFloor'
 
-# Now import Qt and set the policy IMMEDIATELY
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
-# Set High DPI policy BEFORE any QApplication instance is created
 QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.RoundPreferFloor)
 
 # ============================================
@@ -71,7 +68,6 @@ from discord_interactions import verify_key
 # ============================================
 # CONDITIONAL IMPORTS WITH ERROR HANDLING
 # ============================================
-# Controller support imports
 VGAMEPAD_AVAILABLE = False
 XINPUT_AVAILABLE = False
 
@@ -93,7 +89,6 @@ except ImportError:
     except:
         XInput = None
 
-# Windows-specific imports
 if os.name == 'nt':
     try:
         import curses
@@ -115,13 +110,10 @@ except ImportError:
 # QT MESSAGE HANDLER - Define early
 # ============================================
 def qt_message_handler(mode, context, message):
-    # Ignore QPainter warnings
     if "QPainter" in message:
         return
-    # Print other messages
     print(message)
 
-# Install the message handler immediately after Qt imports
 from PyQt6.QtCore import qInstallMessageHandler
 qInstallMessageHandler(qt_message_handler)
 
@@ -133,7 +125,6 @@ DEV_MODE = True
 CONTROLLER_MESSAGES_SHOWN = False
 ENABLE_PROCESS_CRITICAL = False
 
-# Global variables
 mouse_dev = None
 last_click_time = 0
 
@@ -160,17 +151,14 @@ def init_security():
     if os.name == 'nt':
         kernel32 = ctypes.WinDLL('kernel32')
         
-        # Check for debugger
         if kernel32.IsDebuggerPresent():
             print("Error code: 1")
             sys.exit(1)
         
-        # Check for Python debugger
         if 'pydevd' in sys.modules:
             print("Error code: 2")
             sys.exit(1)
         
-        # Check for trace
         if sys.gettrace() is not None:
             print("Error code: 3")
             sys.exit(1)
@@ -354,10 +342,8 @@ if not initialize_packages():
     sys.exit(0)
 
 def qt_message_handler(mode, context, message):
-    # Ignore QPainter warnings
     if "QPainter" in message:
         return
-    # Print other messages
     print(message)
 
 # ============================================
@@ -379,7 +365,6 @@ class ProcessHider:
             return
         
         try:
-            # Remove from taskbar
             GWL_EXSTYLE = -20
             WS_EX_APPWINDOW = 0x00040000
             WS_EX_TOOLWINDOW = 0x00000080
@@ -408,14 +393,13 @@ class ProcessHider:
             return
         
         if os.name == 'nt':
-            # Set process priority
             try:
                 import psutil
                 p = psutil.Process()
                 p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
             except:
                 pass
-            
+
             self.hidden = True
 
 # ============================================
@@ -443,7 +427,6 @@ class AdvancedAntiDetection:
         if os.name != 'nt':
             return False
         
-        # Check for VM artifacts
         vm_signs = [
             "VMware", "VirtualBox", "Virtual", "Xen",
             "QEMU", "Hyper-V", "Parallels", "innotek GmbH"
@@ -453,7 +436,6 @@ class AdvancedAntiDetection:
             import wmi
             c = wmi.WMI()
             
-            # Check BIOS
             for bios in c.Win32_BIOS():
                 for sign in vm_signs:
                     if sign.lower() in str(bios.Manufacturer).lower():
@@ -461,7 +443,6 @@ class AdvancedAntiDetection:
                     if sign.lower() in str(bios.SerialNumber).lower():
                         return True
             
-            # Check Computer System
             for cs in c.Win32_ComputerSystem():
                 for sign in vm_signs:
                     if sign.lower() in str(cs.Manufacturer).lower():
@@ -476,7 +457,6 @@ class AdvancedAntiDetection:
     @staticmethod
     def check_sandbox():
         """Check for sandbox environments"""
-        # Check for sandbox usernames
         sandbox_users = [
             "sandbox", "virus", "malware", "test",
             "john doe", "currentuser", "admin"
@@ -487,7 +467,6 @@ class AdvancedAntiDetection:
             if user in current_user:
                 return True
         
-        # Check for sandbox paths
         sandbox_paths = [
             r"C:\agent",
             r"C:\sandbox",
@@ -1131,7 +1110,7 @@ class CompactVisuals(threading.Thread):
                             break
                             
                 except Exception as e:
-                    print(f"Compact visuals error: {e}")
+                    #print(f"Compact visuals error: {e}")
                     time.sleep(0.01)
         
         except Exception as e:
@@ -3125,9 +3104,8 @@ class AimbotController:
     
         self.load_current_config()
 
-        new_confidence = self.config_manager.get_model_specific_confidence()
-        if new_confidence is not None and new_confidence != old_confidence:
-            self.confidence = new_confidence
+        # FIXED: Always use confidence from new_config - this is the value that was just saved by the GUI
+        self.confidence = new_config.get('confidence', 0.3)
 
         if self.running:
             if old_controller_enabled != self.controller_enabled:
@@ -3713,6 +3691,10 @@ class AimbotController:
                             if self.visuals and self.visuals.running:
                                 debug_frame = self.draw_detections_on_frame(frame.copy(), results)
                                 self.visuals.update_frame(debug_frame)
+                            
+                            # Process triggerbot with AI results
+                            if self.triggerbot.enabled:
+                                self.triggerbot.perform_trigger_with_results(results)
                             
                             # Only process aiming when keybind is pressed
                             if win32api.GetKeyState(int(self.keybind, 16)) in (-127, -128):
@@ -4534,18 +4516,22 @@ class Triggerbot:
         self.rapid_fire = True
         self.shots_per_burst = 1
         self.trigger_in_progress = False
-        
+
         # New spray mode settings
         self.spray_mode = True  # Enable continuous spray
         self.spray_active = False  # Track if currently spraying
         self.spray_start_time = 0  # Track when spray started
         self.max_spray_duration = 5.0  # Max continuous spray time (seconds)
         self.spray_rate = 0.001  # Time between shots when spraying (1ms = very fast)
-    
+
+        # Grace period to prevent stopping on detection flicker
+        self.last_target_time = 0
+        self.grace_period = 0.15  # Keep firing for 150ms after losing target
+
     def is_keybind_pressed(self):
         """Check if triggerbot keybind is pressed"""
         return win32api.GetAsyncKeyState(self.keybind) < 0
-    
+
     def is_ready_to_fire(self):
         """Check if triggerbot is ready to fire - ALWAYS READY IN SPRAY MODE"""
         if self.spray_mode and self.spray_active:
@@ -4558,8 +4544,9 @@ class Triggerbot:
         if not results or len(results[0].boxes) == 0:
             return None
         
-        targets = []
         fov_center = self.aimbot_controller.fov // 2
+        best_target = None
+        best_score = float('inf')
         
         for box in results[0].boxes:
             x1, y1, x2, y2 = box.xyxy[0]
@@ -4568,45 +4555,35 @@ class Triggerbot:
             if hasattr(x1, 'item'):
                 x1, y1, x2, y2 = x1.item(), y1.item(), x2.item(), y2.item()
             
-            # Calculate dimensions
-            height = y2 - y1
-            width = x2 - x1
-            
-            # Skip tiny detections
-            if width < 5 or height < 5:
-                continue
-            
-            # Use the SAME aim calculation as main aimbot
-            center_x = (x1 + x2) / 2
-            target_y = y1 + (height * (100 - self.aimbot_controller.aim_height) / 100)
-            
-            # Calculate distance from center
-            dist_from_center = math.sqrt((center_x - fov_center) ** 2 + (target_y - fov_center) ** 2)
-            
             # Get confidence
             confidence = box.conf[0].cpu().numpy() if hasattr(box.conf[0], 'cpu') else box.conf[0]
-            
-            # Only add if confidence meets threshold
-            if confidence >= self.confidence_threshold:
-                targets.append({
-                    'position': (center_x, target_y),
-                    'distance': dist_from_center,
-                    'confidence': confidence,
-                    'box': (x1, y1, x2, y2)
-                })
+
+            # Skip low confidence
+            if confidence < self.confidence_threshold:
+                continue
+
+            # Check if crosshair is inside or near this detection box (with padding for stability)
+            padding = 20  # Extra pixels around the box for more forgiving detection
+            crosshair_in_box = (x1 - padding) <= fov_center <= (x2 + padding) and (y1 - padding) <= fov_center <= (y2 + padding)
+
+            if crosshair_in_box:
+                # Crosshair is inside - this is a valid target
+                box_area = (x2 - x1) * (y2 - y1)
+                # Prefer smaller boxes (head over body)
+                if box_area < best_score:
+                    best_score = box_area
+                    best_target = {
+                        'box': (x1, y1, x2, y2),
+                        'confidence': confidence,
+                        'crosshair_inside': True
+                    }
         
-        if not targets:
-            return None
-        
-        # Return closest target to center
-        return min(targets, key=lambda t: t['distance'])
+        return best_target
     
-    def is_target_locked(self, target_x, target_y, fov_center):
-        """Check if target is close enough to crosshair"""
-        # Calculate distance from crosshair to target
-        distance = math.sqrt((target_x - fov_center) ** 2 + (target_y - fov_center) ** 2)
-        # Consider locked if within 20 pixels (increased for easier triggering)
-        return distance < 20
+    def is_target_locked(self, target_x, target_y, fov_center, box=None):
+        """Check if we should fire - simplified version"""
+        # If target was found with crosshair inside, always return True
+        return True
     
     def should_fire(self):
         """Check if all conditions are met to fire"""
@@ -4633,53 +4610,37 @@ class Triggerbot:
         return True
     
     def perform_trigger_with_results(self, results):
-        """Perform triggerbot using provided YOLO results - FAST SPRAY VERSION"""
+        """Perform triggerbot - SIMPLIFIED VERSION"""
         if not self.enabled:
             return False
         
         if not self.is_keybind_pressed():
-            # Key released - stop spraying
-            if self.spray_active:
-                self.stop_spray()
             return False
         
-        # Find best target from results
-        target = self.find_best_target_from_results(results)
-        
-        if not target:
-            # No target - stop spraying if active
-            if self.spray_active:
-                self.stop_spray()
+        # Check if crosshair is inside any detection box
+        if not results or len(results[0].boxes) == 0:
             return False
         
-        # Check if target is close enough to crosshair
         fov_center = self.aimbot_controller.fov // 2
-        target_x, target_y = target['position']
         
-        if self.is_target_locked(target_x, target_y, fov_center):
-            # Target locked - start or continue spraying
-            if not self.spray_active:
-                self.start_spray()
+        # Check ALL boxes - fire if crosshair is inside ANY of them
+        for box in results[0].boxes:
+            x1, y1, x2, y2 = box.xyxy[0]
             
-            # Check if we should fire based on spray rate
-            if self.is_ready_to_fire():
-                # Check spray duration limit
-                if time.time() - self.spray_start_time > self.max_spray_duration:
-                    # Reset spray after max duration
-                    self.stop_spray()
-                    self.start_spray()
-                
-                # Fire continuously
-                success = self.execute_fast_fire()
-                
-                if success:
-                    self.last_fire_time = time.time()
-                
-                return success
-        else:
-            # Target not locked - stop spraying
-            if self.spray_active:
-                self.stop_spray()
+            # Convert tensors if needed
+            if hasattr(x1, 'item'):
+                x1, y1, x2, y2 = x1.item(), y1.item(), x2.item(), y2.item()
+            
+            # Check confidence
+            confidence = box.conf[0].cpu().numpy() if hasattr(box.conf[0], 'cpu') else box.conf[0]
+            if confidence < self.confidence_threshold:
+                continue
+            
+            # Check if crosshair is inside this box (no padding - exact box only)
+            if x1 <= fov_center <= x2 and y1 <= fov_center <= y2:
+                # Crosshair is inside - FIRE immediately!
+                self.execute_fire()
+                return True
         
         return False
     
@@ -8719,7 +8680,9 @@ class ConfigApp(QMainWindow):
 
         self.sens_slider = self.create_modern_slider(settings_layout, "Sensitivity (Higher is Faster)", int(self.config_data["sensitivity"] * 10), 1, 100, "", 0.1)
         self.aim_height_slider = self.create_modern_slider(settings_layout, "Aim Height Offset", self.config_data["aim_height"], 1, 100, "%")
-        self.confidence_slider = self.create_modern_slider(settings_layout, "Ai Confidence", int(self.config_data["confidence"] * 100), 10, 99, "%", 0.01)
+        # Round to nearest 10 to ensure 0.01 precision alignment (e.g., 0.80 -> 800, 0.85 -> 850)
+        confidence_value = round(self.config_data["confidence"] * 100) * 10
+        self.confidence_slider = self.create_modern_slider(settings_layout, "Ai Confidence", confidence_value, 100, 990, "%", 0.001, 2, 10)
         
         layout.addWidget(settings_container)
 
@@ -9238,7 +9201,7 @@ class ConfigApp(QMainWindow):
         """)
         return label
 
-    def create_modern_slider(self, layout, label_text, value, min_val, max_val, suffix="", factor=1.0):
+    def create_modern_slider(self, layout, label_text, value, min_val, max_val, suffix="", factor=1.0, decimals=1, step=1):
         """Create modern styled slider"""
         container = QWidget()
         container_layout = QVBoxLayout(container)
@@ -9257,7 +9220,7 @@ class ConfigApp(QMainWindow):
         """)
         label_row.addWidget(label)
         
-        value_label = QLabel(f"{value * factor:.1f}{suffix}" if factor != 1.0 else f"{value}{suffix}")
+        value_label = QLabel(f"{value * factor:.{decimals}f}{suffix}" if factor != 1.0 else f"{value}{suffix}")
         value_label.setStyleSheet("""
             color: #00d4ff;
             font-size: 14px;
@@ -9273,6 +9236,8 @@ class ConfigApp(QMainWindow):
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(value)
+        slider.setSingleStep(step)
+        slider.setPageStep(step * 10)
         slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
@@ -9306,7 +9271,25 @@ class ConfigApp(QMainWindow):
             }
         """)
         
-        slider.valueChanged.connect(lambda val: value_label.setText(f"{val * factor:.1f}{suffix}" if factor != 1.0 else f"{val}{suffix}"))
+        # Snap to step increments when dragging (for step > 1)
+        if step > 1:
+            # Update label during drag - use integer math to avoid floating point errors
+            def update_label(val, s=step, f=factor, d=decimals, suf=suffix):
+                snapped = int(round(val / s)) * s
+                value_label.setText(f"{snapped * f:.{d}f}{suf}" if f != 1.0 else f"{snapped}{suf}")
+            slider.valueChanged.connect(update_label)
+            
+            # Snap to nearest step when drag is released
+            def snap_on_release(s=step):
+                current = slider.value()
+                snapped = int(round(current / s)) * s
+                if snapped != current:
+                    slider.setValue(snapped)
+            
+            slider.sliderReleased.connect(snap_on_release)
+        else:
+            slider.valueChanged.connect(lambda val: value_label.setText(f"{val * factor:.{decimals}f}{suffix}" if factor != 1.0 else f"{val}{suffix}"))
+        
         container_layout.addWidget(slider)
         
         layout.addWidget(container)
@@ -9973,12 +9956,13 @@ class ConfigApp(QMainWindow):
             curve_steps = min(5, max(3, int(5 + (humanizer_value * 0.1))))  # 3-5 steps max
             bezier_randomness = 0.05 + (humanizer_value * 0.001)  # Minimal randomness
             
-            # Create new config
+            confidence_snapped = round(self.confidence_slider.value() / 10.0) * 10
+            
             new_config = {
                 "fov": self.fov_combo.currentData(),
                 "sensitivity": round(self.sens_slider.value() * 0.1, 1),
                 "aim_height": self.aim_height_slider.value(),
-                "confidence": round(self.confidence_slider.value() * 0.01, 2),
+                "confidence": round(confidence_snapped * 0.001, 2),
                 "keybind": hex(self.keybind_combo.currentData()),
                 "custom_resolution": {
                     "use_custom_resolution": self.custom_res_checkbox.isChecked(),
