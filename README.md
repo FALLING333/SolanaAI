@@ -10,14 +10,17 @@ after that check in device manager if your Com port is gone and HID is there.
 
 
 NEW UPDATE
-V12 Release of SolanaAI
+V15 Release of SolanaAI
 
-Since Fz never stopped and kept on shittalking on this release, there we go here is the final version, that skid will probably copy the whole code and say its his, but
-here you go always able to improve but this version is 200% better than his!
+FZ Finally stopped and with this we finally reached it, also the final version of this AI
+
+- Fixed Aimbot, detection no longer flickers
+- Improved performance
+- Triggerbot perfected
 
 Credit to Moriggan
 aka .vernos
-for making it possible for early release.
+for testing and for early release.
 
 Remember people dont buy from 
 https://fz-solana.site/
