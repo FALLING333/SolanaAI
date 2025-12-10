@@ -3,6 +3,7 @@ Some Idiot thought he can take my work and just sell it without my part. so here
 
 Python Required: 3.10.5
 Cuda doesnt matter just make sure to get cupy-cuda12x or 11x matching your cuda version
+Cuda version has to be under 13
 
 For the Arduino + Hostshield you require a logitech or Razer mouse, that dumbass couldnt even manage to share the same source he stole from Lunar,
 so besides that you gotta press the reset button on your arduino as soon as you open fz.exe
