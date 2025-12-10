@@ -1,30 +1,26 @@
-# SolanaAI
-Some Idiot thought he can take my work and just sell it without my part. so here you go try selling now dumbass
+Some idiot thought they could steal my work and sell it without me. Well, good luck trying now.
 
-Python Required: 3.10.5
-Cuda doesnt matter just make sure to get cupy-cuda12x or 11x matching your cuda version
-Cuda version has to be under 13
+Requirements
+Python: 3.10.5
 
-For the Arduino + Hostshield you require a logitech or Razer mouse, that dumbass couldnt even manage to share the same source he stole from Lunar,
-so besides that you gotta press the reset button on your arduino as soon as you open fz.exe
+CUDA: Any version works, just install the matching cupy-cuda package (11x, 12x, or 13x depending on your CUDA version).
 
-after that check in device manager if your Com port is gone and HID is there.
+Arduino + Hostshield Setup
+Requires a Logitech or Razer mouse.
 
+Press the reset button on your Arduino immediately after launching fz.exe.
 
-NEW UPDATE
-V15 Release of SolanaAI
+In Device Manager, confirm that the COM port disappears and HID shows up.
 
-FZ Finally stopped and with this we finally reached it, also the final version of this AI
+NEW UPDATE — V15 Release of SolanaAI
+FZ finally out. This marks the final version of SolanaAI.
 
-- Fixed Aimbot, detection no longer flickers
-- Improved performance
-- Triggerbot perfected
+Improvements
+ - Aimbot: Detection no longer flickers.
 
-Credit to Moriggan
-aka .vernos
-for testing and for early release.
+ - Performance: Optimized for smoother operation.
 
-Remember people dont buy from 
-https://fz-solana.site/
+ - Triggerbot: Fully perfected.
 
-just a guy that sells AI Generated code
+Credits
+Special thanks to Moriggan (aka .vernos) for testing and early release support.
