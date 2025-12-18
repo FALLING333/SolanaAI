@@ -34,3 +34,8 @@ Improvements
 Credits
 
 Special thanks to Moriggan (aka .vernos) for testing and early release support.
+
+
+Lmao FZ recopied the whole struction to a new website, do not buy from
+https://fz-ai.site/
+this guy will literally scam you.
